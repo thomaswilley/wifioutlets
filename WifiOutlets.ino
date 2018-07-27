@@ -1,6 +1,6 @@
-/* Copyright (c) 2018, Thomas Willey
+/* Copyright (c) 2018, Thomas Willey. All rights reserved.
  * WifiOutlets.ino
- * Simple http server to control wifi outlets (WifiLights project)
+ * Simple http server to control wifi outlets (WifiOutlets project)
  * Built for the NodeMCU/ESP8266 microcontroller
  * https://github.com/thomaswilley/wifioutlets
  * 
@@ -8,23 +8,25 @@
  * Improper project setup or software use could be very dangerous (e.g., fire).
  * 
  * 
- * Base HTTP Server implementation is based on upon work which is Copyright (c) 2015, Majenko Technologies
-     * All rights reserved.
-     *
-     * Redistribution and use in source and binary forms, with or without modification,
-     * are permitted provided that the following conditions are met:
-     *
-     * * Redistributions of source code must retain the above copyright notice, this
-     *   list of conditions and the following disclaimer.
-     *
-     * * Redistributions in binary form must reproduce the above copyright notice, this
-     *   list of conditions and the following disclaimer in the documentation and/or
-     *   other materials provided with the distribution.
-     *
-     * * Neither the name of Majenko Technologies nor the names of its
-     *   contributors may be used to endorse or promote products derived from
-     *   this software without specific prior written permission.
-     *
+ * This project uses Open Source components.
+ * ESP8266 Web Server:
+ * Copyright (c) 2015, Majenko Technologies
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * * Redistributions of source code must retain the above copyright notice, this
+ *   list of conditions and the following disclaimer.
+ *
+ * * Redistributions in binary form must reproduce the above copyright notice, this
+ *   list of conditions and the following disclaimer in the documentation and/or
+ *   other materials provided with the distribution.
+ *
+ * * Neither the name of Majenko Technologies nor the names of its
+ *   contributors may be used to endorse or promote products derived from
+ *   this software without specific prior written permission.
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -53,7 +55,7 @@ ESP8266WebServer server (PORT);
  *    example:
  *     - pin corresponding to OFF for outlet #1:  OUTLET_TO_PIN_MAP[1][0]
  *     - and corresponding to ON for same outlet: OUTLET_TO_PIN_MAP[1][1]
-*/
+ */
 const int NUM_VALID_OUTLETS = 4; // would be five but for now we're just using 8 GPIO (i.e., valid_pins)
 const int PINS_PER_OUTLET = 2; // one pin each for on & off..
 const int OUTLET_TO_PIN_MAP[NUM_VALID_OUTLETS+1][PINS_PER_OUTLET] = {
@@ -64,8 +66,10 @@ const int OUTLET_TO_PIN_MAP[NUM_VALID_OUTLETS+1][PINS_PER_OUTLET] = {
   { 9,  14 },
 };
 
+const int PIN_STATUS = 10; // blinks when reset, solid for loading/connecting/setting up mdns, then *unlit* (which is a good thing & means connected fine)
+
 bool isValidOutlet(int outlet) {
-  return ((outlet <= NUM_VALID_OUTLETS) and (outlet > 0)) ? true : false; 
+  return ((outlet <= NUM_VALID_OUTLETS) and (outlet > 0)) ? true : false;
 }
 
 bool isValidOutletState(int outletState) {
@@ -155,20 +159,22 @@ void handleRoot() {
   String uptime = getUptime();
 
   String message = "<html> \
-  <head> \
-    <title>WiFi Lights</title> \
-    <style> \
-      body { background-color: \#fff; font-family: Arial, Helvetica, Sans-Serif; Color: \#000; } \
-    </style> \
-  </head> \
-  <body> \
-    <h1>This is a server for the WiFiLights project</h1>";
-  message += uptime;
+                    <head> \
+                    <title>WiFiOutlets</title> \
+                    <style> \
+                    body { background-color: \#fff; font-family: Arial, Helvetica, Sans-Serif; Color: \#000; } \
+                    </style> \
+                    </head> \
+                    <body>";
+  message = message + "WifiOutlets server uptime: " + uptime;
 
   for ( uint8_t outletNum = 1; outletNum < NUM_VALID_OUTLETS+1; outletNum++ ) {
     message += getOutletToggleForm(outletNum);
   }
-  
+
+  message += "<p/></p>&copy;<a href=\"https://twitter.com/thomaswilley\">Thomas Willey</a>, 2018. <br/><a href=\"https://github.com/thomaswilley/wifioutlets\"> \
+              https://github.com/thomaswilley/wifioutlets</a>";
+
   message += "</body></html>";
 
   server.send ( 200, "text/html", message );
@@ -177,9 +183,9 @@ void handleRoot() {
 void setupGpio() {
   for ( uint8_t outletNum = 1; outletNum < NUM_VALID_OUTLETS+1; outletNum++) {
     for ( uint8_t pinNum = 0; pinNum < PINS_PER_OUTLET; pinNum++ ) {
-       int valid_pin = OUTLET_TO_PIN_MAP[outletNum][pinNum];
-       pinMode ( valid_pin, OUTPUT );
-       digitalWrite ( valid_pin, LOW );
+      int valid_pin = OUTLET_TO_PIN_MAP[outletNum][pinNum];
+      pinMode ( valid_pin, OUTPUT );
+      digitalWrite ( valid_pin, LOW );
     }
   }
 }
@@ -202,9 +208,9 @@ void setupWifi() {
   Serial.print ( "IP address: " );
   Serial.println ( WiFi.localIP() );
 
-  if ( MDNS.begin ( "wifilights" ) ) {
+  if ( MDNS.begin ( "wifioutlets" ) ) {
     Serial.println ( "mDNS responder started" );
-    Serial.println ( String("Available at http://wifilights.local:"+PORT) );
+    Serial.println ( String("Available at http://wifioutlets.local:"+PORT) );
   } else {
     Serial.println ( "Unable to start mDNS!" );
   }
@@ -217,17 +223,47 @@ void setupServer() {
   server.on ( "/outletsJSON", HTTP_GET, handleGetValidOutletsJSON );
   server.on ( "/updateOutlet", HTTP_POST, handleUpdateOutlet );
   server.onNotFound ( handleNotFound );
- 
+
   server.begin();
   Serial.println ( "HTTP server started" );
 }
 
+void beginStatusLED() {
+  pinMode ( PIN_STATUS, OUTPUT );
+  for (uint8_t i = 0; i < 3; i++) {
+    digitalWrite( PIN_STATUS, LOW );
+    delay(250);
+    digitalWrite( PIN_STATUS, HIGH );
+    delay(250);
+  }
+}
+
+void endStatusLED() {
+  digitalWrite( PIN_STATUS, LOW );
+}
+
 void setup ( void ) {
+  beginStatusLED();
   setupGpio();
   setupWifi();
   setupServer();
+  endStatusLED();
 }
 
+bool RESET_ON_NEXT_LOOP_IF_WIFI_STILL_CANT_CONNECT = false;
+const int MAX_CONNECTION_ATTEMPT_WAITS = 600; // 600 * 100ms = 1min;
+
 void loop ( void ) {
-	server.handleClient();
+  bool wifiConnected = (WiFi.status() == WL_CONNECTED);
+  if (!wifiConnected) {
+    int connection_attempt_waits = 0;
+    while ((WiFi.status() != WL_CONNECTED) && (connection_attempt_waits < MAX_CONNECTION_ATTEMPT_WAITS)) {
+      digitalWrite( PIN_STATUS, HIGH );
+      delay(100);
+      Serial.println("Wifi dropped... attempting to reconnect...");
+      connection_attempt_waits++;
+    }
+  } else {
+    server.handleClient();
+  }
 }
