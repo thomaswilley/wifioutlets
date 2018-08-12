@@ -14,7 +14,7 @@ char hostString[16] = {0};
 
 const int PIN_STATUS = LED_BUILTIN;
 
-const int SWITCHES[] = { 4, 5, 13, 14 }; // SWITCHES[i] is switch for outlet #i+1
+const int SWITCHES[] = { 4, 5, 13, 14 }; // SWITCHES[i] is the gpio for WiFiOutlet #i+1
 
 /* WIFIOUTLET_BASE is the base station for the home */
 String WIFIOUTLET_BASE_HOST;
@@ -23,8 +23,7 @@ int WIFIOUTLET_BASE_PORT;
 
 void setupGpio() {
   for (uint8_t i = 0; i < sizeof(SWITCHES)/sizeof(int); i++) {
-    int valid_pin = SWITCHES[i+1];
-    pinMode (valid_pin, INPUT);
+    pinMode (SWITCHES[i], INPUT);
   }
   pinMode (PIN_STATUS, OUTPUT);
 }
@@ -139,9 +138,7 @@ String getUrlRequest(int outletNum, int outletState) {
 }
 
 bool changeOutletState(int outletNum, int outletState) {
-  Serial.println("Changing outlet " + String(outletNum) + " to state " + String(outletState));
-  return true;
-/*
+  Serial.println("Attempting to change outlet " + String(outletNum) + " to state " + String(outletState));
   Serial.print("connecting to " + String(WIFIOUTLET_BASE_IP.toString()));
   
   // Use WiFiClient class to create TCP connections
@@ -169,58 +166,27 @@ bool changeOutletState(int outletNum, int outletState) {
   while(client.available()){
     String line = client.readStringUntil('\r');
     if (line == String("HTTP/1.1 302 Found")) {
-      Serial.println("success!");
+      Serial.println("SUCCESS: changed outlet " + String(outletNum) + " to state " + String(outletState));
       return true;
     }
-    Serial.print(line);
+    Serial.println(line);
   }
-  
-  Serial.println();
+
+  Serial.println("FAILURE to change outlet " + String(outletNum) + " to state " + String(outletState));
   Serial.println("closing connection");
   return false;
-*/
 }
 
-int ledState = LOW;         // the current state of the output pin
-int buttonState;             // the current reading from the input pin
-int lastButtonState = LOW;   // the previous reading from the input pin
-
-// the following variables are unsigned longs because the time, measured in
-// milliseconds, will quickly become a bigger number than can be stored in an int.
-unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
-
-int num_retries = 0;
-int MAX_RETRIES = 10;
+int last_pin_readings[sizeof(SWITCHES)/sizeof(int)];
 
 void loop() {
-  int reading = digitalRead(SWITCHES[0]);
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
-  }
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      ledState = !ledState;
-      digitalWrite(PIN_STATUS, ledState);
-      Serial.println("Switch toggled to " + String(ledState));
-
-      int num_retries = 0;
-      bool succeeded = false;
-      while (!succeeded && (num_retries < MAX_RETRIES)) {
-        beginStatusLED();
-        succeeded = changeOutletState(1, ledState);
-        num_retries++;
-      }
-      if (!succeeded || num_retries >= MAX_RETRIES) {
-        digitalWrite(PIN_STATUS, HIGH);
-      } else {
-        endStatusLED();
-      }
+  delay(10);
+  for (uint8_t i = 0; i < sizeof(SWITCHES)/sizeof(int); i++) {
+    int pin_value = digitalRead(SWITCHES[i]);
+    if (last_pin_readings[i] != pin_value) {
+      changeOutletState(i+1, pin_value);
+      last_pin_readings[i] = pin_value;
     }
   }
-  lastButtonState = reading;
 }
 
