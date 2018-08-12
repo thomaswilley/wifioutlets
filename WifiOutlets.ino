@@ -209,6 +209,7 @@ void setupWifi() {
   Serial.println ( WiFi.localIP() );
 
   if ( MDNS.begin ( "wifioutlets" ) ) {
+    MDNS.addService("wifioutlets", "tcp", PORT);
     Serial.println ( "mDNS responder started" );
     Serial.println ( String("Available at http://wifioutlets.local:"+PORT) );
   } else {
