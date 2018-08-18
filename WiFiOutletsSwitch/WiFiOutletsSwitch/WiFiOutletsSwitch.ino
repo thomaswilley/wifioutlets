@@ -1,20 +1,30 @@
 /*
- *  This sketch sends data via HTTP GET requests to data.sparkfun.com service.
- *
- *  You need to get streamId and privateKey at data.sparkfun.com and paste them
- *  below. Or just customize this script to talk to other HTTP servers.
  *
  */
 
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#include <RCSwitch.h>
 #include "wifi_credentials.h" // contains ssid & password both as const char*'s
+
+RCSwitch mySwitch = RCSwitch();
 
 char hostString[16] = {0};
 
 const int PIN_STATUS = LED_BUILTIN;
 
 const int SWITCHES[] = { 4, 5, 13, 14 }; // SWITCHES[i] is the gpio for WiFiOutlet #i+1
+const int PIN_RFDATA = 12;
+
+/* the binary signal code sent as 24bit on protocol1 for rc-switch w/pulse length 161ms */
+const int R433_PULSE_LENGTH = 161;
+const int R433_PROTOCOL = 1;
+const char* R433_CODE_MAP[sizeof(SWITCHES)/sizeof(int)][2] = { // index as R433_CODE_MAP[outlet#-1][0] for off and R433_CODE_MAP[outlet#-1][1] for on
+  { "110111011000000000110100", "110111011000000000111100" },
+  { "110111011000000000110010", "110111011000000000111010" },
+  { "110111011000000000110001", "110111011000000000111001" },
+  { "110111011000000000110101", "110111011000000000111101" },
+};
 
 /* WIFIOUTLET_BASE is the base station for the home */
 String WIFIOUTLET_BASE_HOST;
@@ -24,8 +34,9 @@ int WIFIOUTLET_BASE_PORT;
 void setupGpio() {
   for (uint8_t i = 0; i < sizeof(SWITCHES)/sizeof(int); i++) {
     pinMode (SWITCHES[i], INPUT);
+    digitalWrite(SWITCHES[i], LOW);
   }
-  pinMode (PIN_STATUS, OUTPUT);
+  digitalWrite(PIN_STATUS, LOW);
 }
 
 void beginStatusLED() {
@@ -104,19 +115,32 @@ void setupMDNS() {
   Serial.println();
 }
 
+void setupRFSwitch() {
+  pinMode(PIN_RFDATA, OUTPUT);
+  digitalWrite(PIN_RFDATA, LOW);
+  
+  mySwitch.enableTransmit(PIN_RFDATA);
+  mySwitch.setPulseLength(161);
+  mySwitch.setProtocol(1);
+  mySwitch.setRepeatTransmit(2);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(10);
 
-  beginStatusLED();
+  //beginStatusLED();
 
+  /*
   setupWifi();
 
   setupMDNS();
-
+  */
   setupGpio();
+
+  setupRFSwitch();
   
-  endStatusLED();
+  //endStatusLED();
 }
 
 String getUrlRequest(int outletNum, int outletState) {
@@ -137,7 +161,14 @@ String getUrlRequest(int outletNum, int outletState) {
   return request;
 }
 
-bool changeOutletState(int outletNum, int outletState) {
+bool changeOutletStateRF(int outletNum, int outletState) {
+  const char * code = R433_CODE_MAP[outletNum-1][outletState];
+  Serial.println("Changing outlet " + String(outletNum) + " to state " + String(outletState) + ", sending: " + code);
+  mySwitch.send(code);
+  return true;
+}
+
+bool changeOutletStateWiFi(int outletNum, int outletState) {
   Serial.println("Attempting to change outlet " + String(outletNum) + " to state " + String(outletState));
   Serial.print("connecting to " + String(WIFIOUTLET_BASE_IP.toString()));
   
@@ -184,7 +215,7 @@ void loop() {
   for (uint8_t i = 0; i < sizeof(SWITCHES)/sizeof(int); i++) {
     int pin_value = digitalRead(SWITCHES[i]);
     if (last_pin_readings[i] != pin_value) {
-      changeOutletState(i+1, pin_value);
+      changeOutletStateRF(i+1, pin_value);
       last_pin_readings[i] = pin_value;
     }
   }
